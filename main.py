@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import datetime
-from io import StringIO, BytesIO
+from io import BytesIO
 import plotly.express as px
 import numpy as np  # pour la régression linéaire
 
@@ -129,21 +129,46 @@ if uploaded_file is not None:
         if "debut_list" not in st.session_state:
             st.session_state.debut_list = []
 
-        if st.button("➕ Ajouter cette période"):
-            if start_dt not in st.session_state.debut_list:  # ✅ on évite les doublons
-                st.session_state.debut_list.append(start_dt)
+        colA, colB, colC = st.columns([1,1,2])
+        with colA:
+            if st.button("➕ Ajouter cette période"):
+                if start_dt not in st.session_state.debut_list:
+                    st.session_state.debut_list.append(start_dt)
 
-        if st.button("♻️ Réinitialiser la sélection"):
-            st.session_state.debut_list = []
+        with colB:
+            if st.button("♻️ Réinitialiser toutes les périodes"):
+                st.session_state.debut_list = []
+
+        with colC:
+            if st.session_state.debut_list:
+                periode_a_supprimer = st.selectbox(
+                    "🗑️ Supprimer une période",
+                    options=st.session_state.debut_list,
+                    format_func=lambda x: x.strftime("%Y-%m-%d %H:%M")
+                )
+                if st.button("Confirmer suppression"):
+                    st.session_state.debut_list.remove(periode_a_supprimer)
 
         debut_list = st.session_state.debut_list
 
+        # Tableau des périodes sélectionnées
         if debut_list:
-            st.write("### Périodes sélectionnées")
-            st.dataframe(pd.DataFrame({
+            st.write("### 📋 Périodes sélectionnées")
+            period_df = pd.DataFrame({
                 "Période": [f"Période {i+1}" for i in range(len(debut_list))],
                 "Début": debut_list
-            }))
+            })
+            st.dataframe(period_df)
+
+            # Export CSV
+            csv = period_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Télécharger les périodes (CSV)", data=csv, file_name="periodes_selectionnees.csv", mime="text/csv")
+
+            # Export Excel
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                period_df.to_excel(writer, sheet_name="Périodes", index=False)
+            st.download_button("⬇️ Télécharger les périodes (Excel)", data=buffer.getvalue(), file_name="periodes_selectionnees.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         # -----------------------------
         # Superposition des périodes
@@ -203,6 +228,16 @@ if uploaded_file is not None:
                 st.markdown("### 📊 Résumé multi-périodes")
                 summary_df = pd.DataFrame(summary_rows)
                 st.dataframe(summary_df)
+
+                # Export CSV
+                csv = summary_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Télécharger le résumé multi-périodes (CSV)", data=csv, file_name="resume_periodes.csv", mime="text/csv")
+
+                # Export Excel
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    summary_df.to_excel(writer, sheet_name="Résumé", index=False)
+                st.download_button("⬇️ Télécharger le résumé multi-périodes (Excel)", data=buffer.getvalue(), file_name="resume_periodes.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
         # -----------------------------
         # Analyse détaillée (rectangular selection uniquement)
@@ -275,3 +310,13 @@ if uploaded_file is not None:
                         st.plotly_chart(fig2, use_container_width=True)
                         st.markdown("### 📊 Résultats d'analyse")
                         st.dataframe(results)
+
+                        # Export CSV
+                        csv = results.to_csv(index=False).encode("utf-8")
+                        st.download_button("⬇️ Télécharger les résultats (CSV)", data=csv, file_name="analyse_resultats.csv", mime="text/csv")
+
+                        # Export Excel
+                        buffer = BytesIO()
+                        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                            results.to_excel(writer, sheet_name="Analyse", index=False)
+                        st.download_button("⬇️ Télécharger les résultats (Excel)", data=buffer.getvalue(), file_name="analyse_resultats.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
