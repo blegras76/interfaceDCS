@@ -156,4 +156,124 @@ if uploaded_file is not None:
             if st.session_state.debut_list:
                 periode_a_supprimer = st.selectbox(
                     "🗑️ Supprimer une période",
-                    options=st.
+                    options=st.session_state.debut_list,
+                    format_func=lambda x: x.strftime("%Y-%m-%d %H:%M")
+                )
+                if st.button("Confirmer suppression"):
+                    st.session_state.debut_list.remove(periode_a_supprimer)
+
+        debut_list = st.session_state.debut_list
+
+        # Tableau des périodes sélectionnées
+        if debut_list:
+            st.write("### 📋 Périodes sélectionnées")
+            period_df = pd.DataFrame({
+                "Période": [f"Période {i+1}" for i in range(len(debut_list))],
+                "Début": debut_list
+            })
+            st.dataframe(period_df)
+
+            # Export CSV
+            csv = period_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Télécharger les périodes (CSV)", data=csv,
+                               file_name="periodes_selectionnees.csv", mime="text/csv")
+
+            # Export Excel
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                period_df.to_excel(writer, sheet_name="Périodes", index=False)
+            st.download_button("⬇️ Télécharger les périodes (Excel)", data=buffer.getvalue(),
+                               file_name="periodes_selectionnees.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+        # -----------------------------
+        # Superposition des périodes
+        # -----------------------------
+        if debut_list:
+            st.subheader("Superposition des périodes sélectionnées")
+
+            fig_multi = go.Figure()
+            colors = px.colors.qualitative.Set1
+            summary_rows = []
+            export_dfs = []  # ✅ pour stocker les données brutes superposées
+
+            for i, d0 in enumerate(debut_list):
+                d1 = d0 + delta
+                subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
+
+                if not subset.empty:
+                    subset["Temps relatif (h)"] = (subset["Datetime"] - d0).dt.total_seconds() / 3600
+
+                    vals = subset[var].astype(float)
+                    mean_val = vals.mean()
+                    min_val = vals.min()
+                    max_val = vals.max()
+
+                    color = colors[i % len(colors)]
+                    label = (
+                        f"Période {i+1} (début {d0.strftime('%Y-%m-%d %H:%M')}) "
+                        f"| Moy={mean_val:.1f}, Min={min_val:.1f}, Max={max_val:.1f}"
+                    )
+
+                    fig_multi.add_trace(go.Scatter(
+                        x=subset["Temps relatif (h)"],
+                        y=subset[var],
+                        mode="lines",
+                        name=label,
+                        line=dict(color=color)
+                    ))
+
+                    summary_rows.append({
+                        "Période": f"Période {i+1}",
+                        "Début": d0,
+                        "Durée": delta,
+                        "Moyenne": round(mean_val, 2),
+                        "Min": round(min_val, 2),
+                        "Max": round(max_val, 2)
+                    })
+
+                    subset_export = subset[["Temps relatif (h)", var]].copy()
+                    subset_export["Période"] = f"Période {i+1} ({d0.strftime('%Y-%m-%d %H:%M')})"
+                    export_dfs.append(subset_export)
+
+            fig_multi.update_layout(
+                title=f"Superposition de {var} sur plusieurs périodes",
+                xaxis_title="Temps relatif (h)",
+                yaxis_title=var,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+
+            st.plotly_chart(fig_multi, use_container_width=True)
+
+            # Résumé et export
+            if summary_rows:
+                st.markdown("### 📊 Résumé multi-périodes")
+                summary_df = pd.DataFrame(summary_rows)
+                st.dataframe(summary_df)
+
+                # Export résumé
+                csv = summary_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Télécharger le résumé multi-périodes (CSV)", data=csv,
+                                   file_name="resume_periodes.csv", mime="text/csv")
+
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    summary_df.to_excel(writer, sheet_name="Résumé", index=False)
+                st.download_button("⬇️ Télécharger le résumé multi-périodes (Excel)", data=buffer.getvalue(),
+                                   file_name="resume_periodes.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+            # ✅ Export données brutes superposées
+            if export_dfs:
+                export_df = pd.concat(export_dfs, ignore_index=True)
+
+                csv = export_df.to_csv(index=False).encode("utf-8")
+                st.download_button("⬇️ Télécharger les données superposées (CSV)", data=csv,
+                                   file_name="donnees_superposees.csv", mime="text/csv")
+
+                buffer = BytesIO()
+                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                    export_df.to_excel(writer, sheet_name="Superposées", index=False)
+                st.download_button("⬇️ Télécharger les données superposées (Excel)", data=buffer.getvalue(),
+                                   file_name="donnees_superposees.xlsx",
+                                   mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
