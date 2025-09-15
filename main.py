@@ -123,8 +123,27 @@ if uploaded_file is not None:
             delta = pd.Timedelta(hours=duree_val)
             unite_label = "h"
 
-        dates_dispo = df["Datetime"].dropna().sort_values().tolist()
-        debut_list = st.multiselect("Choisir les dates de début", dates_dispo[:200])
+        # Sélection de dates/heures personnalisées
+        col1, col2 = st.columns(2)
+        with col1:
+            date_sel = st.date_input("Date de début", value=df["Datetime"].min().date())
+        with col2:
+            time_sel = st.time_input("Heure de début", value=datetime.time(0, 0))
+
+        start_dt = datetime.datetime.combine(date_sel, time_sel)
+
+        # Liste persistante des périodes
+        if "debut_list" not in st.session_state:
+            st.session_state.debut_list = []
+
+        if st.button("➕ Ajouter cette période"):
+            st.session_state.debut_list.append(start_dt)
+
+        if st.button("♻️ Réinitialiser la sélection"):
+            st.session_state.debut_list = []
+
+        debut_list = st.session_state.debut_list
+        st.write("Périodes sélectionnées :", debut_list)
 
         extracted = []
 
@@ -132,7 +151,6 @@ if uploaded_file is not None:
             fig = go.Figure()
 
             for d0 in debut_list:
-                d0 = pd.to_datetime(d0)
                 d1 = d0 + delta
                 subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
 
