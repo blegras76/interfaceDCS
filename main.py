@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import datetime
 from io import StringIO, BytesIO
 import plotly.express as px
+import numpy as np  # pour la régression linéaire
 
 # Essai d'import du module de capture d'événements
 try:
@@ -156,7 +157,52 @@ if uploaded_file is not None:
         st.write("Périodes sélectionnées :", debut_list)
 
         # -----------------------------
-        # Analyse détaillée
+        # Superposition des périodes
+        # -----------------------------
+        if debut_list:
+            st.subheader("Superposition des périodes sélectionnées")
+
+            fig_multi = go.Figure()
+            colors = px.colors.qualitative.Set1
+
+            for i, d0 in enumerate(debut_list):
+                d1 = d0 + delta
+                subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
+
+                if not subset.empty:
+                    subset["Temps relatif (h)"] = (subset["Datetime"] - d0).dt.total_seconds() / 3600
+
+                    # Stats rapides pour la légende
+                    vals = subset[var].astype(float)
+                    mean_val = vals.mean()
+                    min_val = vals.min()
+                    max_val = vals.max()
+
+                    color = colors[i % len(colors)]
+                    label = (
+                        f"Période {i+1} (début {d0.strftime('%Y-%m-%d %H:%M')}) "
+                        f"| Moy={mean_val:.1f}, Min={min_val:.1f}, Max={max_val:.1f}"
+                    )
+
+                    fig_multi.add_trace(go.Scatter(
+                        x=subset["Temps relatif (h)"],
+                        y=subset[var],
+                        mode="lines",
+                        name=label,
+                        line=dict(color=color)
+                    ))
+
+            fig_multi.update_layout(
+                title=f"Superposition de {var} sur plusieurs périodes",
+                xaxis_title="Temps relatif (h)",
+                yaxis_title=var,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+
+            st.plotly_chart(fig_multi, use_container_width=True)
+
+        # -----------------------------
+        # Analyse détaillée (P1 / P2)
         # -----------------------------
         st.subheader("Analyse d'une période sélectionnée")
 
@@ -208,13 +254,22 @@ if uploaded_file is not None:
 
                         if not sub_window.empty:
                             values = sub_window[var].astype(float)
+                            times = (sub_window["Datetime"] - sub_window["Datetime"].iloc[0]).dt.total_seconds() / 3600
+
                             mean_val = values.mean()
                             std_val = values.std()
                             min_val = values.min()
                             max_val = values.max()
-                            slope = (values.iloc[-1] - values.iloc[0]) / (
+
+                            # Pente simple
+                            slope_simple = (values.iloc[-1] - values.iloc[0]) / (
                                 (sub_window["Datetime"].iloc[-1] - sub_window["Datetime"].iloc[0]).total_seconds() / 3600
                             )
+
+                            # Pente régression linéaire
+                            coeffs = np.polyfit(times, values, 1)
+                            slope_reg = coeffs[0]
+
                             duration = (p2_time - p1_time)
 
                             results = pd.DataFrame([{
@@ -226,7 +281,8 @@ if uploaded_file is not None:
                                 "Écart-type": round(std_val, 3),
                                 "Min": round(min_val, 3),
                                 "Max": round(max_val, 3),
-                                "Pente (par heure)": round(slope, 3),
+                                "Pente simple (par heure)": round(slope_simple, 3),
+                                "Pente (régression, par heure)": round(slope_reg, 3),
                             }])
 
                             # Ajout de la zone colorée sur le graphe
