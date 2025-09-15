@@ -2,22 +2,29 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Upload du fichier
 uploaded_file = st.file_uploader("Choisir un fichier CSV", type=["csv"])
 
 if uploaded_file is not None:
-    # Lecture brute sans header
     df_raw = pd.read_csv(uploaded_file, sep=";", header=None)
 
-    # Extraction des noms des variables à partir de la ligne 5 et 6, colonnes 14 → fin
+    # Nombre total de colonnes
+    ncols = df_raw.shape[1]
+
+    # Colonnes fixes (1-4) + métadonnées (5-13)
+    fixed_cols = ["Col1", "Col2", "Date", "Heure"] + [f"Meta{i}" for i in range(5, 14)]
+
+    # Variables process (à partir de la col 14)
     var_names = df_raw.iloc[4, 13:].astype(str) + "_" + df_raw.iloc[5, 13:].astype(str)
 
-    # Construction du DataFrame (vraies données : à partir de la ligne 7)
-    df = df_raw.iloc[6:].reset_index(drop=True)
+    # Construction complète des noms de colonnes
+    all_cols = fixed_cols + list(var_names)
 
-    # Attribution des noms de colonnes
-    fixed_cols = ["Col1", "Col2", "Date", "Heure"] + [f"Meta{i}" for i in range(5, 14)]
-    df.columns = fixed_cols + list(var_names)
+    # Vérification : adapter au vrai nombre de colonnes
+    all_cols = all_cols[:ncols]
+
+    # Extraction des données (après la ligne 6)
+    df = df_raw.iloc[6:].reset_index(drop=True)
+    df.columns = all_cols
 
     # Fusion Date + Heure
     df["Datetime"] = pd.to_datetime(
@@ -27,7 +34,7 @@ if uploaded_file is not None:
     )
 
     # Liste des variables process
-    variables = list(var_names)
+    variables = [c for c in df.columns if c not in fixed_cols]
 
     # Sélection interactive
     choix = st.multiselect("Sélectionner les variables à afficher", variables)
@@ -42,7 +49,6 @@ if uploaded_file is not None:
         format="YYYY-MM-DD HH:mm"
     )
 
-    # Filtrage temporel
     df_filtered = df[(df["Datetime"] >= start) & (df["Datetime"] <= end)]
 
     # Affichage graphique
