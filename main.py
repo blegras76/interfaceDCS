@@ -85,33 +85,16 @@ if uploaded_file is not None:
 
         if choix:
             fig = go.Figure()
-
             for i, var in enumerate(choix):
-                yaxis_ref = "y" if i == 0 else f"y{i+1}"
-                layout_key = "yaxis" if i == 0 else f"yaxis{i+1}"
-
-                side = "left" if i % 2 == 0 else "right"
-                overlay = "y" if i > 0 else None
-
                 fig.add_trace(go.Scatter(
                     x=df_filtered["Datetime"], y=df_filtered[var],
-                    mode="lines", name=var, yaxis=yaxis_ref
+                    mode="lines", name=var
                 ))
-
-                fig.update_layout({
-                    layout_key: dict(
-                        title=var,
-                        side=side,
-                        overlaying=overlay
-                    )
-                })
-
             fig.update_layout(
                 title="Données process DCS",
                 xaxis=dict(title="Temps"),
                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
             )
-
             st.plotly_chart(fig, use_container_width=True)
 
     # --- Comparaison multi-périodes + Analyse ---
@@ -126,13 +109,10 @@ if uploaded_file is not None:
 
         if unite == "minutes":
             delta = pd.Timedelta(minutes=duree_val)
-            unite_label = "min"
         elif unite == "jours":
             delta = pd.Timedelta(days=duree_val)
-            unite_label = "j"
         else:
             delta = pd.Timedelta(hours=duree_val)
-            unite_label = "h"
 
         # Sélection de dates/heures personnalisées
         col1, col2 = st.columns(2)
@@ -164,6 +144,7 @@ if uploaded_file is not None:
 
             fig_multi = go.Figure()
             colors = px.colors.qualitative.Set1
+            summary_rows = []
 
             for i, d0 in enumerate(debut_list):
                 d1 = d0 + delta
@@ -172,7 +153,6 @@ if uploaded_file is not None:
                 if not subset.empty:
                     subset["Temps relatif (h)"] = (subset["Datetime"] - d0).dt.total_seconds() / 3600
 
-                    # Stats rapides pour la légende
                     vals = subset[var].astype(float)
                     mean_val = vals.mean()
                     min_val = vals.min()
@@ -192,6 +172,15 @@ if uploaded_file is not None:
                         line=dict(color=color)
                     ))
 
+                    summary_rows.append({
+                        "Période": f"Période {i+1}",
+                        "Début": d0,
+                        "Durée": delta,
+                        "Moyenne": round(mean_val, 2),
+                        "Min": round(min_val, 2),
+                        "Max": round(max_val, 2)
+                    })
+
             fig_multi.update_layout(
                 title=f"Superposition de {var} sur plusieurs périodes",
                 xaxis_title="Temps relatif (h)",
@@ -201,8 +190,13 @@ if uploaded_file is not None:
 
             st.plotly_chart(fig_multi, use_container_width=True)
 
+            if summary_rows:
+                st.markdown("### 📊 Résumé multi-périodes")
+                summary_df = pd.DataFrame(summary_rows)
+                st.dataframe(summary_df)
+
         # -----------------------------
-        # Analyse détaillée (P1 / P2)
+        # Analyse détaillée (rectangular selection uniquement)
         # -----------------------------
         st.subheader("Analyse d'une période sélectionnée")
 
@@ -211,111 +205,64 @@ if uploaded_file is not None:
             d1 = periode_choisie + delta
             subset = df[(df["Datetime"] >= periode_choisie) & (df["Datetime"] < d1)].copy()
 
-            if not subset.empty:
-                if has_plotly_events:
-                    # Mode de sélection
-                    mode_selection = st.radio(
-                        "Mode de sélection",
-                        ["Cliquer sur 2 points", "Sélection rectangulaire (drag)"]
-                    )
+            if not subset.empty and has_plotly_events:
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=subset["Datetime"], y=subset[var],
+                    mode="lines+markers", name=var
+                ))
+                fig2.update_layout(
+                    title=f"Sélectionner une plage ({var})",
+                    xaxis_title="Temps",
+                    yaxis_title=var,
+                    dragmode="select"
+                )
 
-                    fig2 = go.Figure()
-                    fig2.add_trace(go.Scatter(
-                        x=subset["Datetime"], y=subset[var],
-                        mode="lines+markers", name=var
-                    ))
-                    fig2.update_layout(
-                        title=f"Sélectionner une plage ({var})",
-                        xaxis_title="Temps",
-                        yaxis_title=var,
-                        dragmode="select" if mode_selection == "Sélection rectangulaire (drag)" else "zoom"
-                    )
+                p1_time, p2_time = None, None
+                selected_zone = plotly_events(fig2, click_event=False, select_event=True, key="drag")
+                if selected_zone:
+                    xs = [pd.to_datetime(p["x"]) for p in selected_zone]
+                    p1_time, p2_time = min(xs), max(xs)
 
-                    # Initialisation sécurisée
-                    p1_time, p2_time = None, None
+                if p1_time is not None and p2_time is not None:
+                    sub_window = subset[(subset["Datetime"] >= p1_time) & (subset["Datetime"] <= p2_time)]
 
-                    if mode_selection == "Cliquer sur 2 points":
-                        selected_points = plotly_events(fig2, click_event=True, select_event=False, key="clic")
-                        if len(selected_points) >= 2:
-                            p1_time = pd.to_datetime(selected_points[0]["x"])
-                            p2_time = pd.to_datetime(selected_points[1]["x"])
-                            if p1_time > p2_time:
-                                p1_time, p2_time = p2_time, p1_time
+                    if not sub_window.empty:
+                        values = sub_window[var].astype(float)
+                        times = (sub_window["Datetime"] - sub_window["Datetime"].iloc[0]).dt.total_seconds() / 3600
 
-                    elif mode_selection == "Sélection rectangulaire (drag)":
-                        selected_zone = plotly_events(fig2, click_event=False, select_event=True, key="drag")
-                        if selected_zone:
-                            xs = [pd.to_datetime(p["x"]) for p in selected_zone]
-                            p1_time, p2_time = min(xs), max(xs)
+                        mean_val = values.mean()
+                        std_val = values.std()
+                        min_val = values.min()
+                        max_val = values.max()
 
-                    # Si une plage a été définie
-                    if p1_time is not None and p2_time is not None:
-                        sub_window = subset[(subset["Datetime"] >= p1_time) & (subset["Datetime"] <= p2_time)]
+                        slope_simple = (values.iloc[-1] - values.iloc[0]) / (
+                            (sub_window["Datetime"].iloc[-1] - sub_window["Datetime"].iloc[0]).total_seconds() / 3600
+                        )
+                        coeffs = np.polyfit(times, values, 1)
+                        slope_reg = coeffs[0]
 
-                        if not sub_window.empty:
-                            values = sub_window[var].astype(float)
-                            times = (sub_window["Datetime"] - sub_window["Datetime"].iloc[0]).dt.total_seconds() / 3600
+                        duration = (p2_time - p1_time)
 
-                            mean_val = values.mean()
-                            std_val = values.std()
-                            min_val = values.min()
-                            max_val = values.max()
+                        results = pd.DataFrame([{
+                            "Variable": var,
+                            "P1": p1_time,
+                            "P2": p2_time,
+                            "Durée": duration,
+                            "Moyenne": round(mean_val, 3),
+                            "Écart-type": round(std_val, 3),
+                            "Min": round(min_val, 3),
+                            "Max": round(max_val, 3),
+                            "Pente simple (par heure)": round(slope_simple, 3),
+                            "Pente (régression, par heure)": round(slope_reg, 3),
+                        }])
 
-                            # Pente simple
-                            slope_simple = (values.iloc[-1] - values.iloc[0]) / (
-                                (sub_window["Datetime"].iloc[-1] - sub_window["Datetime"].iloc[0]).total_seconds() / 3600
-                            )
+                        fig2.add_vrect(
+                            x0=p1_time, x1=p2_time,
+                            fillcolor="LightSalmon", opacity=0.3,
+                            layer="below", line_width=0
+                        )
 
-                            # Pente régression linéaire
-                            coeffs = np.polyfit(times, values, 1)
-                            slope_reg = coeffs[0]
-
-                            duration = (p2_time - p1_time)
-
-                            results = pd.DataFrame([{
-                                "Variable": var,
-                                "P1": p1_time,
-                                "P2": p2_time,
-                                "Durée": duration,
-                                "Moyenne": round(mean_val, 3),
-                                "Écart-type": round(std_val, 3),
-                                "Min": round(min_val, 3),
-                                "Max": round(max_val, 3),
-                                "Pente simple (par heure)": round(slope_simple, 3),
-                                "Pente (régression, par heure)": round(slope_reg, 3),
-                            }])
-
-                            # Ajout de la zone colorée sur le graphe
-                            fig2.add_vrect(
-                                x0=p1_time, x1=p2_time,
-                                fillcolor="LightSalmon", opacity=0.3,
-                                layer="below", line_width=0
-                            )
-
-                            # Affichage
-                            st.plotly_chart(fig2, use_container_width=True)
-                            st.markdown("### 📊 Résultats d'analyse")
-                            st.dataframe(results)
-
-                            # Export CSV
-                            csv_buffer = StringIO()
-                            results.to_csv(csv_buffer, index=False, sep=";")
-                            st.download_button(
-                                "📥 Télécharger les résultats (CSV)",
-                                data=csv_buffer.getvalue(),
-                                file_name=f"analyse_{var}.csv",
-                                mime="text/csv"
-                            )
-
-                            # Export Excel
-                            excel_buffer = BytesIO()
-                            with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-                                results.to_excel(writer, index=False, sheet_name="Analyse")
-                            st.download_button(
-                                "📊 Télécharger les résultats (Excel)",
-                                data=excel_buffer.getvalue(),
-                                file_name=f"analyse_{var}.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
-                else:
-                    st.error("⚠️ Sélection de points désactivée car `streamlit-plotly-events` n'est pas installé.")
+                        st.plotly_chart(fig2, use_container_width=True)
+                        st.markdown("### 📊 Résultats d'analyse")
+                        st.dataframe(results)
