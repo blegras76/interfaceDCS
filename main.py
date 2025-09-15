@@ -123,18 +123,27 @@ if uploaded_file is not None:
 
         start_dt = datetime.datetime.combine(date_sel, time_sel)
 
+        # -----------------------------
         # Liste persistante des périodes
+        # -----------------------------
         if "debut_list" not in st.session_state:
             st.session_state.debut_list = []
 
         if st.button("➕ Ajouter cette période"):
-            st.session_state.debut_list.append(start_dt)
+            if start_dt not in st.session_state.debut_list:  # ✅ on évite les doublons
+                st.session_state.debut_list.append(start_dt)
 
         if st.button("♻️ Réinitialiser la sélection"):
             st.session_state.debut_list = []
 
         debut_list = st.session_state.debut_list
-        st.write("Périodes sélectionnées :", debut_list)
+
+        if debut_list:
+            st.write("### Périodes sélectionnées")
+            st.dataframe(pd.DataFrame({
+                "Période": [f"Période {i+1}" for i in range(len(debut_list))],
+                "Début": debut_list
+            }))
 
         # -----------------------------
         # Superposition des périodes
