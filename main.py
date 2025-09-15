@@ -155,47 +155,6 @@ if uploaded_file is not None:
         debut_list = st.session_state.debut_list
         st.write("Périodes sélectionnées :", debut_list)
 
-        extracted = []
-
-        if debut_list:
-            fig = go.Figure()
-            colors = px.colors.qualitative.Set1  # palette fixe
-
-            for i, d0 in enumerate(debut_list):
-                d1 = d0 + delta
-                subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
-
-                if not subset.empty:
-                    subset["Temps relatif"] = (subset["Datetime"] - d0).dt.total_seconds()
-
-                    if unite == "minutes":
-                        subset["Temps relatif"] /= 60
-                    elif unite == "jours":
-                        subset["Temps relatif"] /= 3600 * 24
-                    else:
-                        subset["Temps relatif"] /= 3600
-
-                    color = colors[i % len(colors)]
-                    periode_label = f"Début {d0}"
-
-                    subset["Periode"] = periode_label
-                    subset["Couleur"] = color
-                    extracted.append(subset[["Datetime", "Temps relatif", var, "Periode", "Couleur"]])
-
-                    fig.add_trace(go.Scatter(
-                        x=subset["Temps relatif"], y=subset[var],
-                        mode="lines", name=periode_label,
-                        line=dict(color=color)
-                    ))
-
-            fig.update_layout(
-                title=f"Comparaison de {var} sur plusieurs périodes",
-                xaxis_title=f"Temps relatif ({unite_label})",
-                yaxis_title=var
-            )
-
-            st.plotly_chart(fig, use_container_width=True)
-
         # -----------------------------
         # Analyse détaillée
         # -----------------------------
@@ -226,6 +185,9 @@ if uploaded_file is not None:
                         dragmode="select" if mode_selection == "Sélection rectangulaire (drag)" else "zoom"
                     )
 
+                    # Initialisation sécurisée
+                    p1_time, p2_time = None, None
+
                     if mode_selection == "Cliquer sur 2 points":
                         selected_points = plotly_events(fig2, click_event=True, select_event=False, key="clic")
                         if len(selected_points) >= 2:
@@ -233,16 +195,15 @@ if uploaded_file is not None:
                             p2_time = pd.to_datetime(selected_points[1]["x"])
                             if p1_time > p2_time:
                                 p1_time, p2_time = p2_time, p1_time
-                    else:
+
+                    elif mode_selection == "Sélection rectangulaire (drag)":
                         selected_zone = plotly_events(fig2, click_event=False, select_event=True, key="drag")
                         if selected_zone:
                             xs = [pd.to_datetime(p["x"]) for p in selected_zone]
                             p1_time, p2_time = min(xs), max(xs)
-                        else:
-                            p1_time, p2_time = None, None
 
                     # Si une plage a été définie
-                    if p1_time and p2_time:
+                    if p1_time is not None and p2_time is not None:
                         sub_window = subset[(subset["Datetime"] >= p1_time) & (subset["Datetime"] <= p2_time)]
 
                         if not sub_window.empty:
@@ -267,6 +228,13 @@ if uploaded_file is not None:
                                 "Max": round(max_val, 3),
                                 "Pente (par heure)": round(slope, 3),
                             }])
+
+                            # Ajout de la zone colorée sur le graphe
+                            fig2.add_vrect(
+                                x0=p1_time, x1=p2_time,
+                                fillcolor="LightSalmon", opacity=0.3,
+                                layer="below", line_width=0
+                            )
 
                             # Affichage
                             st.plotly_chart(fig2, use_container_width=True)
