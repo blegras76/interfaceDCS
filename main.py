@@ -97,6 +97,19 @@ if uploaded_file is not None:
             )
             st.plotly_chart(fig, use_container_width=True)
 
+            # ✅ Export des données affichées
+            export_graph = df_filtered[["Datetime"] + choix]
+            csv = export_graph.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Télécharger les données affichées (CSV)", data=csv,
+                               file_name="donnees_graph_simple.csv", mime="text/csv")
+
+            buffer = BytesIO()
+            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+                export_graph.to_excel(writer, sheet_name="Graph", index=False)
+            st.download_button("⬇️ Télécharger les données affichées (Excel)", data=buffer.getvalue(),
+                               file_name="donnees_graph_simple.xlsx",
+                               mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
     # --- Comparaison multi-périodes + Analyse ---
     with tab2:
         st.subheader("Comparaison et analyse de périodes")
@@ -143,180 +156,4 @@ if uploaded_file is not None:
             if st.session_state.debut_list:
                 periode_a_supprimer = st.selectbox(
                     "🗑️ Supprimer une période",
-                    options=st.session_state.debut_list,
-                    format_func=lambda x: x.strftime("%Y-%m-%d %H:%M")
-                )
-                if st.button("Confirmer suppression"):
-                    st.session_state.debut_list.remove(periode_a_supprimer)
-
-        debut_list = st.session_state.debut_list
-
-        # Tableau des périodes sélectionnées
-        if debut_list:
-            st.write("### 📋 Périodes sélectionnées")
-            period_df = pd.DataFrame({
-                "Période": [f"Période {i+1}" for i in range(len(debut_list))],
-                "Début": debut_list
-            })
-            st.dataframe(period_df)
-
-            # Export CSV
-            csv = period_df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Télécharger les périodes (CSV)", data=csv, file_name="periodes_selectionnees.csv", mime="text/csv")
-
-            # Export Excel
-            buffer = BytesIO()
-            with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                period_df.to_excel(writer, sheet_name="Périodes", index=False)
-            st.download_button("⬇️ Télécharger les périodes (Excel)", data=buffer.getvalue(), file_name="periodes_selectionnees.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-        # -----------------------------
-        # Superposition des périodes
-        # -----------------------------
-        if debut_list:
-            st.subheader("Superposition des périodes sélectionnées")
-
-            fig_multi = go.Figure()
-            colors = px.colors.qualitative.Set1
-            summary_rows = []
-
-            for i, d0 in enumerate(debut_list):
-                d1 = d0 + delta
-                subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
-
-                if not subset.empty:
-                    subset["Temps relatif (h)"] = (subset["Datetime"] - d0).dt.total_seconds() / 3600
-
-                    vals = subset[var].astype(float)
-                    mean_val = vals.mean()
-                    min_val = vals.min()
-                    max_val = vals.max()
-
-                    color = colors[i % len(colors)]
-                    label = (
-                        f"Période {i+1} (début {d0.strftime('%Y-%m-%d %H:%M')}) "
-                        f"| Moy={mean_val:.1f}, Min={min_val:.1f}, Max={max_val:.1f}"
-                    )
-
-                    fig_multi.add_trace(go.Scatter(
-                        x=subset["Temps relatif (h)"],
-                        y=subset[var],
-                        mode="lines",
-                        name=label,
-                        line=dict(color=color)
-                    ))
-
-                    summary_rows.append({
-                        "Période": f"Période {i+1}",
-                        "Début": d0,
-                        "Durée": delta,
-                        "Moyenne": round(mean_val, 2),
-                        "Min": round(min_val, 2),
-                        "Max": round(max_val, 2)
-                    })
-
-            fig_multi.update_layout(
-                title=f"Superposition de {var} sur plusieurs périodes",
-                xaxis_title="Temps relatif (h)",
-                yaxis_title=var,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-
-            st.plotly_chart(fig_multi, use_container_width=True)
-
-            if summary_rows:
-                st.markdown("### 📊 Résumé multi-périodes")
-                summary_df = pd.DataFrame(summary_rows)
-                st.dataframe(summary_df)
-
-                # Export CSV
-                csv = summary_df.to_csv(index=False).encode("utf-8")
-                st.download_button("⬇️ Télécharger le résumé multi-périodes (CSV)", data=csv, file_name="resume_periodes.csv", mime="text/csv")
-
-                # Export Excel
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                    summary_df.to_excel(writer, sheet_name="Résumé", index=False)
-                st.download_button("⬇️ Télécharger le résumé multi-périodes (Excel)", data=buffer.getvalue(), file_name="resume_periodes.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-        # -----------------------------
-        # Analyse détaillée (rectangular selection uniquement)
-        # -----------------------------
-        st.subheader("Analyse d'une période sélectionnée")
-
-        if debut_list:
-            periode_choisie = st.selectbox("Choisir une période pour l'analyse", debut_list)
-            d1 = periode_choisie + delta
-            subset = df[(df["Datetime"] >= periode_choisie) & (df["Datetime"] < d1)].copy()
-
-            if not subset.empty and has_plotly_events:
-                fig2 = go.Figure()
-                fig2.add_trace(go.Scatter(
-                    x=subset["Datetime"], y=subset[var],
-                    mode="lines+markers", name=var
-                ))
-                fig2.update_layout(
-                    title=f"Sélectionner une plage ({var})",
-                    xaxis_title="Temps",
-                    yaxis_title=var,
-                    dragmode="select"
-                )
-
-                p1_time, p2_time = None, None
-                selected_zone = plotly_events(fig2, click_event=False, select_event=True, key="drag")
-                if selected_zone:
-                    xs = [pd.to_datetime(p["x"]) for p in selected_zone]
-                    p1_time, p2_time = min(xs), max(xs)
-
-                if p1_time is not None and p2_time is not None:
-                    sub_window = subset[(subset["Datetime"] >= p1_time) & (subset["Datetime"] <= p2_time)]
-
-                    if not sub_window.empty:
-                        values = sub_window[var].astype(float)
-                        times = (sub_window["Datetime"] - sub_window["Datetime"].iloc[0]).dt.total_seconds() / 3600
-
-                        mean_val = values.mean()
-                        std_val = values.std()
-                        min_val = values.min()
-                        max_val = values.max()
-
-                        slope_simple = (values.iloc[-1] - values.iloc[0]) / (
-                            (sub_window["Datetime"].iloc[-1] - sub_window["Datetime"].iloc[0]).total_seconds() / 3600
-                        )
-                        coeffs = np.polyfit(times, values, 1)
-                        slope_reg = coeffs[0]
-
-                        duration = (p2_time - p1_time)
-
-                        results = pd.DataFrame([{
-                            "Variable": var,
-                            "P1": p1_time,
-                            "P2": p2_time,
-                            "Durée": duration,
-                            "Moyenne": round(mean_val, 3),
-                            "Écart-type": round(std_val, 3),
-                            "Min": round(min_val, 3),
-                            "Max": round(max_val, 3),
-                            "Pente simple (par heure)": round(slope_simple, 3),
-                            "Pente (régression, par heure)": round(slope_reg, 3),
-                        }])
-
-                        fig2.add_vrect(
-                            x0=p1_time, x1=p2_time,
-                            fillcolor="LightSalmon", opacity=0.3,
-                            layer="below", line_width=0
-                        )
-
-                        st.plotly_chart(fig2, use_container_width=True)
-                        st.markdown("### 📊 Résultats d'analyse")
-                        st.dataframe(results)
-
-                        # Export CSV
-                        csv = results.to_csv(index=False).encode("utf-8")
-                        st.download_button("⬇️ Télécharger les résultats (CSV)", data=csv, file_name="analyse_resultats.csv", mime="text/csv")
-
-                        # Export Excel
-                        buffer = BytesIO()
-                        with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
-                            results.to_excel(writer, sheet_name="Analyse", index=False)
-                        st.download_button("⬇️ Télécharger les résultats (Excel)", data=buffer.getvalue(), file_name="analyse_resultats.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                    options=st.
