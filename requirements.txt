@@ -6,3 +6,4 @@ python-docx
 typing
 plotly
 openpyxl
+streamlit-plotly-events

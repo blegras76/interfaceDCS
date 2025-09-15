@@ -2,7 +2,9 @@ import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import datetime
-from io import StringIO
+from io import StringIO, BytesIO
+import plotly.express as px
+from streamlit_plotly_events import plotly_events
 
 uploaded_file = st.file_uploader("Choisir un fichier CSV DCS", type=["csv"])
 
@@ -51,7 +53,7 @@ if uploaded_file is not None:
     # ---------------------
     # Onglets Streamlit
     # ---------------------
-    tab1, tab2 = st.tabs(["Visualisation simple", "Comparaison multi-périodes"])
+    tab1, tab2 = st.tabs(["Visualisation simple", "Comparaison & Analyse multi-périodes"])
 
     # --- Visualisation simple ---
     with tab1:
@@ -103,9 +105,9 @@ if uploaded_file is not None:
 
             st.plotly_chart(fig, use_container_width=True)
 
-    # --- Comparaison multi-périodes ---
+    # --- Comparaison multi-périodes + Analyse ---
     with tab2:
-        st.subheader("Comparaison d'une variable sur plusieurs périodes")
+        st.subheader("Comparaison et analyse de périodes")
 
         var = st.selectbox("Variable à comparer", var_names)
 
@@ -149,8 +151,9 @@ if uploaded_file is not None:
 
         if debut_list:
             fig = go.Figure()
+            colors = px.colors.qualitative.Set1  # palette fixe
 
-            for d0 in debut_list:
+            for i, d0 in enumerate(debut_list):
                 d1 = d0 + delta
                 subset = df[(df["Datetime"] >= d0) & (df["Datetime"] < d1)].copy()
 
@@ -164,12 +167,17 @@ if uploaded_file is not None:
                     else:
                         subset["Temps relatif"] /= 3600
 
-                    subset["Periode"] = f"Début {d0}"
-                    extracted.append(subset[["Datetime", "Temps relatif", var, "Periode"]])
+                    color = colors[i % len(colors)]
+                    periode_label = f"Début {d0}"
+
+                    subset["Periode"] = periode_label
+                    subset["Couleur"] = color
+                    extracted.append(subset[["Datetime", "Temps relatif", var, "Periode", "Couleur"]])
 
                     fig.add_trace(go.Scatter(
                         x=subset["Temps relatif"], y=subset[var],
-                        mode="lines", name=f"Début {d0}"
+                        mode="lines", name=periode_label,
+                        line=dict(color=color)
                     ))
 
             fig.update_layout(
@@ -192,3 +200,86 @@ if uploaded_file is not None:
                     file_name=f"comparaison_{var}.csv",
                     mime="text/csv"
                 )
+
+        # -----------------------------
+        # Analyse détaillée d'une période (sélection P1/P2 sur le graphe)
+        # -----------------------------
+        st.subheader("Analyse d'une période sélectionnée (cliquer sur 2 points)")
+
+        if debut_list:
+            periode_choisie = st.selectbox("Choisir une période pour l'analyse", debut_list)
+            d1 = periode_choisie + delta
+            subset = df[(df["Datetime"] >= periode_choisie) & (df["Datetime"] < d1)].copy()
+
+            if not subset.empty:
+                # Graphe interactif
+                fig2 = go.Figure()
+                fig2.add_trace(go.Scatter(
+                    x=subset["Datetime"], y=subset[var],
+                    mode="lines+markers", name=var
+                ))
+                fig2.update_layout(
+                    title=f"Cliquer sur 2 points pour définir P1 et P2 ({var})",
+                    xaxis_title="Temps",
+                    yaxis_title=var
+                )
+
+                selected_points = plotly_events(
+                    fig2, click_event=True, hover_event=False, select_event=False, key="pts"
+                )
+
+                if len(selected_points) >= 2:
+                    p1_time = pd.to_datetime(selected_points[0]["x"])
+                    p2_time = pd.to_datetime(selected_points[1]["x"])
+
+                    if p1_time > p2_time:
+                        p1_time, p2_time = p2_time, p1_time
+
+                    sub_window = subset[(subset["Datetime"] >= p1_time) & (subset["Datetime"] <= p2_time)]
+
+                    if not sub_window.empty:
+                        values = sub_window[var].astype(float)
+                        mean_val = values.mean()
+                        std_val = values.std()
+                        min_val = values.min()
+                        max_val = values.max()
+                        slope = (values.iloc[-1] - values.iloc[0]) / (
+                            (sub_window["Datetime"].iloc[-1] - sub_window["Datetime"].iloc[0]).total_seconds() / 3600
+                        )
+                        duration = (p2_time - p1_time)
+
+                        results = pd.DataFrame([{
+                            "Variable": var,
+                            "P1": p1_time,
+                            "P2": p2_time,
+                            "Durée": duration,
+                            "Moyenne": round(mean_val, 3),
+                            "Écart-type": round(std_val, 3),
+                            "Min": round(min_val, 3),
+                            "Max": round(max_val, 3),
+                            "Pente (par heure)": round(slope, 3),
+                        }])
+
+                        st.markdown("### Résultats")
+                        st.dataframe(results)
+
+                        # Export CSV
+                        csv_buffer = StringIO()
+                        results.to_csv(csv_buffer, index=False, sep=";")
+                        st.download_button(
+                            "📥 Télécharger les résultats (CSV)",
+                            data=csv_buffer.getvalue(),
+                            file_name=f"analyse_{var}.csv",
+                            mime="text/csv"
+                        )
+
+                        # Export Excel
+                        excel_buffer = BytesIO()
+                        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
+                            results.to_excel(writer, index=False, sheet_name="Analyse")
+                        st.download_button(
+                            "📊 Télécharger les résultats (Excel)",
+                            data=excel_buffer.getvalue(),
+                            file_name=f"analyse_{var}.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
